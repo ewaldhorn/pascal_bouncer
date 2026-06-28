@@ -3,21 +3,26 @@
 :root {
     --bg-color: #081433;
     --card-bg: rgba(12, 18, 38, 0.65);
-    --border-green: rgba(16, 204, 120, 0.2);
-    --border-magenta: rgba(255, 0, 85, 0.2);
     
-    --text-primary: #ffffff;
-    --text-secondary: #8b92b6;
-    
+    /* Neon Colors */
     --neon-green: #05a359;
     --neon-green-glow: rgba(5, 163, 89, 0.35);
+    --border-green: rgba(16, 204, 120, 0.2);
+    
     --neon-magenta: #ff0055;
     --neon-magenta-glow: rgba(255, 0, 85, 0.35);
+    --border-magenta: rgba(255, 0, 85, 0.2);
+    
     --neon-purple: #8252fa;
     --neon-purple-glow: rgba(130, 82, 250, 0.35);
     
+    /* Typography */
+    --text-primary: #ffffff;
+    --text-secondary: #8b92b6;
     --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --font-mono: 'Inter', system-ui, monospace;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    
+    /* Design Tokens */
     --radius-lg: 16px;
     --radius-md: 12px;
     --radius-sm: 8px;
@@ -100,6 +105,7 @@ body {
     font-weight: 800;
     color: var(--text-primary);
     text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    font-variant-numeric: tabular-nums;
 }
 
 #score-val {
@@ -143,10 +149,34 @@ body {
 }
 
 .canvas-wrapper canvas {
-    width: 100% !important;
-    height: 100% !important;
+    width: 100%;
+    height: 100%;
     display: block;
     image-rendering: pixelated;
+}
+
+/* Screen Overlays & Theme Declarations */
+#start-screen,
+#level-complete-screen {
+    --theme-color: var(--neon-green);
+    --theme-color-glow: var(--neon-green-glow);
+    --theme-border: var(--border-green);
+    
+    --btn-bg: linear-gradient(135deg, var(--neon-green) 0%, #059669 100%);
+    --btn-color: #070716;
+    --btn-glow: rgba(16, 204, 120, 0.3);
+    --btn-glow-hover: rgba(16, 204, 120, 0.5);
+}
+
+#game-over-screen {
+    --theme-color: var(--neon-magenta);
+    --theme-color-glow: var(--neon-magenta-glow);
+    --theme-border: var(--border-magenta);
+    
+    --btn-bg: linear-gradient(135deg, var(--neon-magenta) 0%, #cc0044 100%);
+    --btn-color: #ffffff;
+    --btn-glow: rgba(255, 0, 85, 0.3);
+    --btn-glow-hover: rgba(255, 0, 85, 0.5);
 }
 
 /* Overlays (Fills the canvas dimensions) */
@@ -161,41 +191,30 @@ body {
     align-items: center;
     z-index: 10;
     opacity: 1;
-    transition: opacity 0.3s ease;
+    visibility: visible;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 .overlay.hidden {
-    display: none;
-    pointer-events: none;
     opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 /* Glass Card */
 .glass-card {
     background: rgba(16, 17, 36, 0.75);
-    border: 1px solid var(--border-magenta);
+    border: 1px solid var(--theme-border);
     border-radius: var(--radius-lg);
     padding: 40px;
     max-width: 480px;
     width: 90%;
     text-align: center;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8),
-                0 0 30px var(--neon-magenta-glow),
+                0 0 35px var(--theme-color-glow),
                 inset 0 1px 0 rgba(255, 255, 255, 0.05);
     transform: translateY(0);
     animation: floatIn 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-}
-
-#game-over-screen .glass-card {
-    border-color: var(--border-magenta);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8),
-                0 0 35px var(--neon-magenta-glow);
-}
-
-#start-screen .glass-card, #level-complete-screen .glass-card {
-    border-color: var(--border-green);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8),
-                0 0 35px var(--neon-green-glow);
 }
 
 /* Card Typography */
@@ -207,18 +226,12 @@ h1, h2 {
     text-transform: uppercase;
 }
 
-#start-title, #level-complete-title {
-    background: linear-gradient(135deg, #ffffff 30%, var(--neon-green) 100%);
+.glass-card h1,
+.glass-card h2 {
+    background: linear-gradient(135deg, #ffffff 30%, var(--theme-color) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    text-shadow: 0 4px 15px rgba(16, 204, 120, 0.25);
-}
-
-#game-over-title {
-    background: linear-gradient(135deg, #ffffff 30%, var(--neon-magenta) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    text-shadow: 0 4px 15px rgba(255, 0, 85, 0.25);
+    filter: drop-shadow(0 4px 15px var(--theme-color-glow));
 }
 
 .subtitle {
@@ -255,12 +268,13 @@ h1, h2 {
     font-size: 2rem;
     font-weight: 800;
     color: var(--neon-magenta);
+    font-variant-numeric: tabular-nums;
 }
 
 /* Premium Buttons */
 .btn-primary {
-    background: linear-gradient(135deg, var(--neon-green) 0%, #00b3ff 100%);
-    color: #070716;
+    background: var(--btn-bg);
+    color: var(--btn-color);
     border: none;
     border-radius: var(--radius-sm);
     padding: 14px 32px;
@@ -270,33 +284,17 @@ h1, h2 {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
-    box-shadow: 0 6px 20px rgba(0, 179, 255, 0.3);
-    transition: all var(--transition-smooth);
+    box-shadow: 0 6px 20px var(--btn-glow);
+    transition: transform var(--transition-smooth),
+                box-shadow var(--transition-smooth),
+                filter var(--transition-smooth);
     width: 100%;
-}
-
-#start-screen .btn-primary {
-    background: linear-gradient(135deg, var(--neon-green) 0%, #059669 100%);
-    box-shadow: 0 6px 20px rgba(16, 204, 120, 0.3);
-}
-
-#game-over-screen .btn-primary {
-    background: linear-gradient(135deg, var(--neon-magenta) 0%, #cc0044 100%);
-    color: #ffffff;
-    box-shadow: 0 6px 20px rgba(255, 0, 85, 0.3);
 }
 
 .btn-primary:hover {
     transform: translateY(-2px);
     filter: brightness(1.1);
-}
-
-#start-screen .btn-primary:hover {
-    box-shadow: 0 8px 25px rgba(16, 204, 120, 0.5);
-}
-
-#game-over-screen .btn-primary:hover {
-    box-shadow: 0 8px 25px rgba(255, 0, 85, 0.5);
+    box-shadow: 0 8px 25px var(--btn-glow-hover);
 }
 
 .btn-primary:active {
