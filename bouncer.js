@@ -56,6 +56,13 @@
     let cachedImageData = null;
     let cachedPixelView = null;
 
+    // UI state caching to prevent redundant DOM updates
+    let lastScore = null;
+    let lastLives = null;
+    let lastLevel = null;
+    let lastStatus = null;
+    let lastPercent = null;
+
     function getExport(name) {
         if (!exports) throw new Error(`WASM exports not loaded`);
         const fn = exports[name];
@@ -117,10 +124,10 @@
             fnCanvasInit(gameWidth, gameHeight, pixelsPtr, 0);
         }
 
-        // Pre-allocate the ImageData buffer and typed array view
+        // Pre-allocate the typed array view directly wrapping WASM memory and wrap it in ImageData (zero-copy)
         if (ctx) {
-            cachedImageData = ctx.createImageData(gameWidth, gameHeight);
             cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+            cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
         }
 
         return pixelsPtr;
@@ -174,19 +181,22 @@
             fnRender();
         }
 
-        // Copy the pixel buffer to the canvas
-        if (canvas && ctx && cachedImageData && cachedPixelView) {
+        // Draw the pixel buffer to the canvas using zero-copy ImageData wrapping
+        if (canvas && ctx && cachedPixelView) {
             // Safety check: If WASM memory grows, the buffer becomes detached.
             if (cachedPixelView.buffer.byteLength === 0) {
                 wasmBuffer = new Uint8Array(wasmMemory.buffer);
                 cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+                cachedImageData = null; // Forces recreation of the ImageData wrapper next frame
             }
-            cachedImageData.data.set(cachedPixelView);
+            if (!cachedImageData) {
+                cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
+            }
             ctx.putImageData(cachedImageData, 0, 0);
         }
     }
 
-    // Update the scoreboard UI
+    // Update the scoreboard UI (throttled to avoid layout recalculations)
     function updateUI() {
         if (!fnGetScore || !fnGetLives || !fnGetLevel || !fnGetGameStatus || !fnGetPercentCaptured) return;
 
@@ -196,35 +206,53 @@
         const status = fnGetGameStatus();
         const percent = fnGetPercentCaptured();
 
-        scoreVal.textContent = String(score).padStart(6, '0');
-        areaVal.textContent = percent.toFixed(1) + '%';
-        livesVal.textContent = lives;
-        levelVal.textContent = level;
+        if (score !== lastScore) {
+            scoreVal.textContent = String(score).padStart(6, '0');
+            lastScore = score;
+        }
 
-        // Handle overlays
-        switch (status) {
-            case StartScreen:
-                startScreen.classList.remove('hidden');
-                gameOverScreen.classList.add('hidden');
-                levelCompleteScreen.classList.add('hidden');
-                break;
-            case Playing:
-                startScreen.classList.add('hidden');
-                gameOverScreen.classList.add('hidden');
-                levelCompleteScreen.classList.add('hidden');
-                break;
-            case GameOver:
-                startScreen.classList.add('hidden');
-                gameOverScreen.classList.remove('hidden');
-                levelCompleteScreen.classList.add('hidden');
-                finalScoreVal.textContent = score;
-                break;
-            case LevelUpDelay:
-                startScreen.classList.add('hidden');
-                gameOverScreen.classList.add('hidden');
-                levelCompleteScreen.classList.remove('hidden');
-                nextLevelVal.textContent = level + 1;
-                break;
+        if (percent !== lastPercent) {
+            areaVal.textContent = percent.toFixed(1) + '%';
+            lastPercent = percent;
+        }
+
+        if (lives !== lastLives) {
+            livesVal.textContent = lives;
+            lastLives = lives;
+        }
+
+        if (level !== lastLevel) {
+            levelVal.textContent = level;
+            lastLevel = level;
+        }
+
+        if (status !== lastStatus) {
+            // Handle overlays
+            switch (status) {
+                case StartScreen:
+                    startScreen.classList.remove('hidden');
+                    gameOverScreen.classList.add('hidden');
+                    levelCompleteScreen.classList.add('hidden');
+                    break;
+                case Playing:
+                    startScreen.classList.add('hidden');
+                    gameOverScreen.classList.add('hidden');
+                    levelCompleteScreen.classList.add('hidden');
+                    break;
+                case GameOver:
+                    startScreen.classList.add('hidden');
+                    gameOverScreen.classList.remove('hidden');
+                    levelCompleteScreen.classList.add('hidden');
+                    finalScoreVal.textContent = score;
+                    break;
+                case LevelUpDelay:
+                    startScreen.classList.add('hidden');
+                    gameOverScreen.classList.add('hidden');
+                    levelCompleteScreen.classList.remove('hidden');
+                    nextLevelVal.textContent = level + 1;
+                    break;
+            }
+            lastStatus = status;
         }
     }
 
