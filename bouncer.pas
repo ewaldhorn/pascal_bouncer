@@ -198,15 +198,67 @@ begin
 end;
 
 // ------------------------------------------------------------------------------------------------
-procedure EnemyEnsureInSea(var e: TEnemyData);
+function BFSToNearest(gx, gy: Integer; targetCell: TCell): TStackPos;
 var
-  cs: Single;
-  gx, gy, nx, ny: Integer;
   head, tail: Integer;
   qx, qy: array[0..999] of Integer;
   visited: array[0..24, 0..39] of Boolean;
-  c, r: Integer;
+  c: Integer;
   found: Boolean;
+  nx, ny: Integer;
+begin
+  FillChar(visited, SizeOf(visited), 0);
+  head := 0;
+  tail := 0;
+  if (gx >= 0) and (gx < COLS) and (gy >= 0) and (gy < ROWS) then
+  begin
+    visited[gy, gx] := True;
+    qx[tail] := gx; qy[tail] := gy; Inc(tail);
+  end;
+
+  found := False;
+  while (head < tail) and not found do
+  begin
+    gx := qx[head]; gy := qy[head]; Inc(head);
+    for c := 0 to 3 do
+    begin
+      case c of
+        0: begin nx := gx;     ny := gy + 1; end;
+        1: begin nx := gx;     ny := gy - 1; end;
+        2: begin nx := gx + 1; ny := gy;     end;
+        3: begin nx := gx - 1; ny := gy;     end;
+      end;
+      if (nx >= 0) and (nx < COLS) and (ny >= 0) and (ny < ROWS) then
+        if not visited[ny, nx] then
+        begin
+          visited[ny, nx] := True;
+          if CellAt(nx, ny) = targetCell then
+          begin
+            BFSToNearest.col := nx;
+            BFSToNearest.row := ny;
+            found := True;
+          end
+          else if tail < Length(qx) then
+          begin
+            qx[tail] := nx; qy[tail] := ny; Inc(tail);
+          end;
+        end;
+    end;
+  end;
+
+  if not found then
+  begin
+    BFSToNearest.col := gx;
+    BFSToNearest.row := gy;
+  end;
+end;
+
+// ------------------------------------------------------------------------------------------------
+procedure EnemyEnsureInSea(var e: TEnemyData);
+var
+  cs: Single;
+  gx, gy: Integer;
+  pos: TStackPos;
 begin
   if not e.active then Exit;
   if not EnemyCheckCollision(e, e.pixel_x, e.pixel_y) then Exit;
@@ -224,61 +276,16 @@ begin
     end;
 
   // BFS to find nearest Sea cell
-  for r := 0 to ROWS - 1 do
-    for c := 0 to COLS - 1 do
-      visited[r, c] := False;
-
-  head := 0;
-  tail := 0;
-  if (gx >= 0) and (gx < COLS) and (gy >= 0) and (gy < ROWS) then
-  begin
-    visited[gy, gx] := True;
-    qx[tail] := gx; qy[tail] := gy; Inc(tail);
-  end;
-
-  found := False;
-  while (head < tail) and not found do
-  begin
-    gx := qx[head]; gy := qy[head]; Inc(head);
-
-    // 4 neighbors
-    for c := 0 to 3 do
-    begin
-      case c of
-        0: begin nx := gx;     ny := gy + 1; end;
-        1: begin nx := gx;     ny := gy - 1; end;
-        2: begin nx := gx + 1; ny := gy;     end;
-        3: begin nx := gx - 1; ny := gy;     end;
-      end;
-      if (nx >= 0) and (nx < COLS) and (ny >= 0) and (ny < ROWS) then
-        if not visited[ny, nx] then
-        begin
-          visited[ny, nx] := True;
-          if CellAt(nx, ny) = Sea then
-          begin
-            EnemySetGridPos(e, nx, ny);
-            found := True;
-            break;
-          end;
-          if tail < 1000 then
-          begin
-            qx[tail] := nx; qy[tail] := ny; Inc(tail);
-          end;
-        end;
-    end;
-  end;
+  pos := BFSToNearest(gx, gy, Sea);
+  EnemySetGridPos(e, pos.col, pos.row);
 end;
 
 // ------------------------------------------------------------------------------------------------
 procedure EnemyEnsureInLand(var e: TEnemyData);
 var
   cs: Single;
-  gx, gy, nx, ny: Integer;
-  head, tail: Integer;
-  qx, qy: array[0..999] of Integer;
-  visited: array[0..24, 0..39] of Boolean;
-  c, r: Integer;
-  found: Boolean;
+  gx, gy: Integer;
+  pos: TStackPos;
 begin
   if not e.active then Exit;
   if not EnemyCheckLandCollision(e, e.pixel_x, e.pixel_y) then Exit;
@@ -294,47 +301,9 @@ begin
       Exit;
     end;
 
-  for r := 0 to ROWS - 1 do
-    for c := 0 to COLS - 1 do
-      visited[r, c] := False;
-
-  head := 0;
-  tail := 0;
-  if (gx >= 0) and (gx < COLS) and (gy >= 0) and (gy < ROWS) then
-  begin
-    visited[gy, gx] := True;
-    qx[tail] := gx; qy[tail] := gy; Inc(tail);
-  end;
-
-  found := False;
-  while (head < tail) and not found do
-  begin
-    gx := qx[head]; gy := qy[head]; Inc(head);
-    for c := 0 to 3 do
-    begin
-      case c of
-        0: begin nx := gx;     ny := gy + 1; end;
-        1: begin nx := gx;     ny := gy - 1; end;
-        2: begin nx := gx + 1; ny := gy;     end;
-        3: begin nx := gx - 1; ny := gy;     end;
-      end;
-      if (nx >= 0) and (nx < COLS) and (ny >= 0) and (ny < ROWS) then
-        if not visited[ny, nx] then
-        begin
-          visited[ny, nx] := True;
-          if CellAt(nx, ny) = Land then
-          begin
-            EnemySetGridPos(e, nx, ny);
-            found := True;
-            break;
-          end;
-          if tail < 1000 then
-          begin
-            qx[tail] := nx; qy[tail] := ny; Inc(tail);
-          end;
-        end;
-    end;
-  end;
+  // BFS to find nearest Land cell
+  pos := BFSToNearest(gx, gy, Land);
+  EnemySetGridPos(e, pos.col, pos.row);
 end;
 
 // ------------------------------------------------------------------------------------------------
