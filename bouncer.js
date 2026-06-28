@@ -66,6 +66,12 @@
         return fn;
     }
 
+    function requireDom(id) {
+        const el = document.getElementById(id);
+        if (!el) throw new Error(`DOM element #${id} not found in the page`);
+        return el;
+    }
+
     // ---------------------------------------------------------------------------
     // WASM memory helpers — not used by the current game loop but kept here for
     // future Pascal↔JS data exchange (e.g. reading game strings or structs).
@@ -356,7 +362,20 @@
         try {
             await initWasm();
 
-            canvas = document.getElementById('game-canvas');
+            // Validate all required DOM elements exist before we touch them
+            // (mirrors the getExport pattern for WASM exports)
+            ['score-val', 'area-val', 'lives-val', 'level-val', 'final-score-val', 'next-level-val',
+             'start-screen', 'game-over-screen', 'level-complete-screen',
+             'start-button', 'restart-button', 'game-canvas',
+            ].forEach(id => requireDom(id));
+
+            canvas = requireDom('game-canvas');
+            if (!canvas.clientWidth || !canvas.clientHeight) {
+                throw new Error(
+                    `Canvas has no layout size (${canvas.clientWidth}×${canvas.clientHeight}) — ` +
+                    `check CSS visibility or container dimensions`
+                );
+            }
             ctx = canvas.getContext('2d');
             setupCanvas();
 
