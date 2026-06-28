@@ -4,9 +4,10 @@
 (async () => {
     "use strict";
 
-    let wasmModule = null;
+    let wasmInstance = null;
     let wasmMemory = null;
-    let wasmBuffer = null;
+    let wasmBuffer = null;  // Uint8Array view — refreshed on WASM memory growth
+    let wasmView = null;    // DataView — refreshed on WASM memory growth
     let canvas = null;
     let ctx = null;
     let animationFrameId = null;
@@ -32,13 +33,9 @@
     const GameOver = 2;
     const LevelUpDelay = 3;
 
-    // WASM exports
-    let exports = null;
+    // WASM exports — populated once in initWasm(); never null after that
     let fnInit = null;
     let fnRender = null;
-    let fnGetWidth = null;
-    let fnGetHeight = null;
-    let fnGetPixels = null;
     let fnGetScore = null;
     let fnGetLives = null;
     let fnGetLevel = null;
@@ -63,37 +60,30 @@
     let lastStatus = null;
     let lastPercent = null;
 
-    function getExport(name) {
-        if (!exports) throw new Error(`WASM exports not loaded`);
+    function getExport(exports, name) {
         const fn = exports[name];
         if (!fn) throw new Error(`Export '${name}' not found in WASM module`);
         return fn;
     }
 
-    // Read a string from WASM memory (null-terminated)
+    // Read a null-terminated string from WASM memory
     function readString(ptr) {
-        const bytes = [];
-        let i = 0;
-        while (true) {
-            const byte = wasmBuffer[ptr + i];
-            if (byte === 0) break;
-            bytes.push(byte);
-            i++;
-        }
-        return String.fromCharCode(...bytes);
+        let end = ptr;
+        while (wasmBuffer[end] !== 0) end++;
+        return new TextDecoder().decode(wasmBuffer.subarray(ptr, end));
     }
 
-    // Read an integer (32-bit signed) from WASM memory
+    // Read a 32-bit signed integer from WASM memory
     function readInt32(ptr) {
-        return new Int32Array(wasmMemory.buffer, ptr, 1)[0];
+        return wasmView.getInt32(ptr, true);
     }
 
-    // Read a float (64-bit) from WASM memory
+    // Read a 64-bit float from WASM memory
     function readFloat64(ptr) {
-        return new Float64Array(wasmMemory.buffer, ptr, 1)[0];
+        return wasmView.getFloat64(ptr, true);
     }
 
-    // Write a string to WASM memory (caller must allocate enough space)
+    // Write a null-terminated C string to WASM memory
     function writeString(str, ptr) {
         for (let i = 0; i < str.length; i++) {
             wasmBuffer[ptr + i] = str.charCodeAt(i);
@@ -101,15 +91,16 @@
         wasmBuffer[ptr + str.length] = 0;
     }
 
-    // Helper to read a Pascal string from a pointer
+    // Read a Pascal short-string from WASM memory
     function readPascalString(ptr) {
-        // Pascal string: first byte is length, then characters
         const len = wasmBuffer[ptr];
-        const chars = [];
-        for (let i = 0; i < len; i++) {
-            chars.push(wasmBuffer[ptr + 1 + i]);
-        }
-        return String.fromCharCode(...chars);
+        return new TextDecoder().decode(wasmBuffer.subarray(ptr + 1, ptr + 1 + len));
+    }
+
+    // Refresh typed-array views after WASM memory growth
+    function refreshMemoryViews() {
+        wasmBuffer = new Uint8Array(wasmMemory.buffer);
+        wasmView = new DataView(wasmMemory.buffer);
     }
 
     // Tell Pascal where to draw — fixed offset past all static data
@@ -120,25 +111,19 @@
         // data segments which end around 104 KB.  1200*750*4 = 3.6 MB
         // fits comfortably in the 4 MB initial memory.
         pixelsPtr = 256 * 1024;
-        if (fnCanvasInit) {
-            fnCanvasInit(gameWidth, gameHeight, pixelsPtr, 0);
-        }
+        fnCanvasInit(gameWidth, gameHeight, pixelsPtr, 0);
 
-        // Pre-allocate the typed array view directly wrapping WASM memory and wrap it in ImageData (zero-copy)
-        if (ctx) {
-            cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
-            cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
-        }
+        // Pre-allocate a typed-array view that wraps WASM memory directly (zero-copy)
+        cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+        cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
 
         return pixelsPtr;
     }
 
     // Initialize the WASM module
     async function initWasm() {
-        const response = await fetch('bouncer.wasm');
-        const buffer = await response.arrayBuffer();
-
-        // Provide _haltproc import required by FPC embedded target
+        // instantiateStreaming compiles while downloading — faster & uses less memory
+        // than fetching into an ArrayBuffer first.
         const importObject = {
             env: {
                 _haltproc: (exitCode) => {
@@ -148,62 +133,53 @@
             }
         };
 
-        wasmModule = await WebAssembly.instantiate(buffer, importObject);
-        wasmMemory = wasmModule.instance.exports.memory;
-        wasmBuffer = new Uint8Array(wasmMemory.buffer);
-        exports = wasmModule.instance.exports;
+        const result = await WebAssembly.instantiateStreaming(fetch('bouncer.wasm'), importObject);
+        wasmInstance = result.instance;
+        wasmMemory = wasmInstance.exports.memory;
+        refreshMemoryViews();
 
-        // Resolve and cache WASM exports
-        fnInit = getExport('init');
-        fnRender = getExport('render');
-        fnGetWidth = getExport('get_width');
-        fnGetHeight = getExport('get_height');
-        fnGetPixels = getExport('get_pixels');
-        fnGetScore = getExport('get_score');
-        fnGetLives = getExport('get_lives');
-        fnGetLevel = getExport('get_level');
-        fnGetGameStatus = getExport('get_game_status');
-        fnGetPercentCaptured = getExport('get_percent_captured');
-        fnOnStart = getExport('on_start');
-        fnOnKeyDown = getExport('on_key_down');
-        fnStep = getExport('step');
-        fnCanvasInit = getExport('CanvasInit');
+        const exp = wasmInstance.exports;
 
-        // Call Pascal's init
-        if (fnInit) {
-            fnInit();
-        }
+        // Resolve and cache all WASM exports (throws immediately if any are missing)
+        fnInit = getExport(exp, 'init');
+        fnRender = getExport(exp, 'render');
+        getExport(exp, 'get_width');   // Validated but not stored (unused after setup)
+        getExport(exp, 'get_height');
+        getExport(exp, 'get_pixels');
+        fnGetScore = getExport(exp, 'get_score');
+        fnGetLives = getExport(exp, 'get_lives');
+        fnGetLevel = getExport(exp, 'get_level');
+        fnGetGameStatus = getExport(exp, 'get_game_status');
+        fnGetPercentCaptured = getExport(exp, 'get_percent_captured');
+        fnOnStart = getExport(exp, 'on_start');
+        fnOnKeyDown = getExport(exp, 'on_key_down');
+        fnStep = getExport(exp, 'step');
+        fnCanvasInit = getExport(exp, 'CanvasInit');
+
+        fnInit();
     }
 
     // Render the game frame
     function render() {
-        if (fnRender) {
-            fnRender();
+        fnRender();
+
+        // Safety check: WASM memory can grow, which detaches the underlying ArrayBuffer.
+        // byteLength becomes 0 on a detached buffer — much cheaper than try/catch.
+        if (cachedPixelView.buffer.byteLength === 0) {
+            refreshMemoryViews();
+            cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+            cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
         }
 
-        // Draw the pixel buffer to the canvas using zero-copy ImageData wrapping
-        if (canvas && ctx && cachedPixelView) {
-            // Safety check: If WASM memory grows, the buffer becomes detached.
-            if (cachedPixelView.buffer.byteLength === 0) {
-                wasmBuffer = new Uint8Array(wasmMemory.buffer);
-                cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
-                cachedImageData = null; // Forces recreation of the ImageData wrapper next frame
-            }
-            if (!cachedImageData) {
-                cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
-            }
-            ctx.putImageData(cachedImageData, 0, 0);
-        }
+        ctx.putImageData(cachedImageData, 0, 0);
     }
 
-    // Update the scoreboard UI (throttled to avoid layout recalculations)
+    // Update the scoreboard UI — called every frame but DOM writes are gated on actual changes
     function updateUI() {
-        if (!fnGetScore || !fnGetLives || !fnGetLevel || !fnGetGameStatus || !fnGetPercentCaptured) return;
-
-        const score = fnGetScore();
-        const lives = fnGetLives();
-        const level = fnGetLevel();
-        const status = fnGetGameStatus();
+        const score   = fnGetScore();
+        const lives   = fnGetLives();
+        const level   = fnGetLevel();
+        const status  = fnGetGameStatus();
         const percent = fnGetPercentCaptured();
 
         if (score !== lastScore) {
@@ -227,7 +203,6 @@
         }
 
         if (status !== lastStatus) {
-            // Handle overlays
             switch (status) {
                 case StartScreen:
                     startScreen.classList.remove('hidden');
@@ -256,6 +231,20 @@
         }
     }
 
+    // Shared logic for starting / restarting the game
+    function startGame() {
+        const status = fnGetGameStatus();
+        if (status === StartScreen || status === GameOver) {
+            if (animationFrameId !== null) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            fnOnStart();
+            keepRunning = true;
+            lastTime = performance.now();
+            animationFrameId = requestAnimationFrame(tick);
+        }
+    }
+
     // Handle key events
     function handleKeyDown(e) {
         const key = e.keyCode || e.which;
@@ -263,28 +252,14 @@
         // Enter/Space to start/restart — works even when game loop isn't running yet
         if (key === 13 || key === 32) {
             e.preventDefault();
-            if (fnGetGameStatus && fnOnStart) {
-                const status = fnGetGameStatus();
-                if (status === StartScreen || status === GameOver) {
-                    if (animationFrameId !== null) {
-                        cancelAnimationFrame(animationFrameId);
-                    }
-                    fnOnStart();
-                    keepRunning = true;
-                    lastTime = performance.now();
-                    animationFrameId = requestAnimationFrame(tick);
-                }
-            }
+            startGame();
             return;
         }
 
         // Arrow keys for player movement — only during gameplay
-        if (!keepRunning) return;
-        if (key >= 37 && key <= 40) {
+        if (keepRunning && key >= 37 && key <= 40) {
             e.preventDefault();
-            if (fnOnKeyDown) {
-                fnOnKeyDown(key);
-            }
+            fnOnKeyDown(key);
         }
     }
 
@@ -294,15 +269,8 @@
         const deltaTime = (now - lastTime) / 1000.0; // seconds
         lastTime = now;
 
-        // Call Pascal's step function (expects seconds)
-        if (fnStep) {
-            fnStep(deltaTime);
-        }
-
-        // Render the frame
+        fnStep(deltaTime);
         render();
-
-        // Update UI
         updateUI();
 
         if (keepRunning) {
@@ -317,49 +285,16 @@
         try {
             await initWasm();
 
-            // Get canvas element
             canvas = document.getElementById('game-canvas');
             ctx = canvas.getContext('2d');
-
-            // Tell Pascal about the canvas pixel buffer
             setupCanvas();
 
-            // Set up event listeners
             window.addEventListener('keydown', handleKeyDown);
 
-            // Start button
-            document.getElementById('start-button').addEventListener('click', () => {
-                if (fnGetGameStatus && fnOnStart) {
-                    const status = fnGetGameStatus();
-                    if (status === StartScreen || status === GameOver) {
-                        if (animationFrameId !== null) {
-                            cancelAnimationFrame(animationFrameId);
-                        }
-                        fnOnStart();
-                        keepRunning = true;
-                        lastTime = performance.now();
-                        animationFrameId = requestAnimationFrame(tick);
-                    }
-                }
-            });
+            document.getElementById('start-button').addEventListener('click', startGame);
+            document.getElementById('restart-button').addEventListener('click', startGame);
 
-            // Restart button
-            document.getElementById('restart-button').addEventListener('click', () => {
-                if (fnGetGameStatus && fnOnStart) {
-                    const status = fnGetGameStatus();
-                    if (status === StartScreen || status === GameOver) {
-                        if (animationFrameId !== null) {
-                            cancelAnimationFrame(animationFrameId);
-                        }
-                        fnOnStart();
-                        keepRunning = true;
-                        lastTime = performance.now();
-                        animationFrameId = requestAnimationFrame(tick);
-                    }
-                }
-            });
-
-            // Initial render
+            // Initial UI render (shows start-screen state)
             updateUI();
 
         } catch (e) {
