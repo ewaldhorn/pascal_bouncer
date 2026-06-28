@@ -374,12 +374,20 @@ begin
 end;
 
 // ------------------------------------------------------------------------------------------------
+procedure ClampWall(var e: TEnemyData; maxW, maxH: Single);
+begin
+  if e.pixel_x <= 0 then begin e.pixel_x := 0; e.vel_x := -e.vel_x; end;
+  if e.pixel_x + e.size >= maxW then begin e.pixel_x := maxW - e.size; e.vel_x := -e.vel_x; end;
+  if e.pixel_y <= 0 then begin e.pixel_y := 0; e.vel_y := -e.vel_y; end;
+  if e.pixel_y + e.size >= maxH then begin e.pixel_y := maxH - e.size; e.vel_y := -e.vel_y; end;
+end;
+
+// ------------------------------------------------------------------------------------------------
 procedure UpdateEnemy(var e: TEnemyData; dtMs: Single);
 var
   dt: Single;
   cs: Single;
   nextX, nextY: Single;
-  maxX, maxY: Single;
 begin
   if not e.active then Exit;
   dt := dtMs / 1000.0;
@@ -402,12 +410,7 @@ begin
     e.pixel_y := nextY;
 
   // Wall clamp
-  maxX := WIDTH;
-  maxY := HEIGHT;
-  if e.pixel_x <= 0 then begin e.pixel_x := 0; e.vel_x := -e.vel_x; end;
-  if e.pixel_x + e.size >= maxX then begin e.pixel_x := maxX - e.size; e.vel_x := -e.vel_x; end;
-  if e.pixel_y <= 0 then begin e.pixel_y := 0; e.vel_y := -e.vel_y; end;
-  if e.pixel_y + e.size >= maxY then begin e.pixel_y := maxY - e.size; e.vel_y := -e.vel_y; end;
+  ClampWall(e, WIDTH, HEIGHT);
 end;
 
 // ------------------------------------------------------------------------------------------------
@@ -416,7 +419,6 @@ var
   dt: Single;
   cs: Single;
   nextX, nextY: Single;
-  maxX, maxY: Single;
   cx, cy, px, py, p_cx, p_cy, self_cx, self_cy: Single;
   dx, dy, dist: Single;
 begin
@@ -459,12 +461,7 @@ begin
     e.pixel_y := nextY;
 
   // Wall clamp
-  maxX := WIDTH;
-  maxY := HEIGHT;
-  if e.pixel_x <= 0 then begin e.pixel_x := 0; e.vel_x := -e.vel_x; end;
-  if e.pixel_x + e.size >= maxX then begin e.pixel_x := maxX - e.size; e.vel_x := -e.vel_x; end;
-  if e.pixel_y <= 0 then begin e.pixel_y := 0; e.vel_y := -e.vel_y; end;
-  if e.pixel_y + e.size >= maxY then begin e.pixel_y := maxY - e.size; e.vel_y := -e.vel_y; end;
+  ClampWall(e, WIDTH, HEIGHT);
 
   // Player collision
   cx := e.pixel_x + e.size / 2.0;
