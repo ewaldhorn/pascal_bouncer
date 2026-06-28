@@ -96,18 +96,6 @@ begin
 end;
 
 // ------------------------------------------------------------------------------------------------
-function MinInt(a, b: Integer): Integer;
-begin
-  if a < b then MinInt := a else MinInt := b;
-end;
-
-// ------------------------------------------------------------------------------------------------
-function MaxInt(a, b: Integer): Integer;
-begin
-  if a > b then MaxInt := a else MaxInt := b;
-end;
-
-// ------------------------------------------------------------------------------------------------
 procedure ResetGrid;
 var
   c, r: Integer;
@@ -895,14 +883,21 @@ begin
   landEnemy.active := False;
 end;
 
+// Key codes (DOM standard)
+const
+  KEY_LEFT  = 37;
+  KEY_UP    = 38;
+  KEY_RIGHT = 39;
+  KEY_DOWN  = 40;
+
 // ------------------------------------------------------------------------------------------------
 procedure on_key_down(keyCode: Integer);
 begin
   case keyCode of
-    37: SetPlayerDirection(-1, 0);  // Left
-    38: SetPlayerDirection(0, -1);  // Up
-    39: SetPlayerDirection(1, 0);   // Right
-    40: SetPlayerDirection(0, 1);   // Down
+    KEY_LEFT:  SetPlayerDirection(-1, 0);
+    KEY_UP:    SetPlayerDirection(0, -1);
+    KEY_RIGHT: SetPlayerDirection(1, 0);
+    KEY_DOWN:  SetPlayerDirection(0, 1);
   end;
 end;
 
