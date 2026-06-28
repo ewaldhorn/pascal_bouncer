@@ -66,36 +66,41 @@
         return fn;
     }
 
-    // Read a null-terminated string from WASM memory
-    function readString(ptr) {
-        let end = ptr;
-        while (wasmBuffer[end] !== 0) end++;
-        return new TextDecoder().decode(wasmBuffer.subarray(ptr, end));
-    }
+    // ---------------------------------------------------------------------------
+    // WASM memory helpers — not used by the current game loop but kept here for
+    // future Pascal↔JS data exchange (e.g. reading game strings or structs).
+    // ---------------------------------------------------------------------------
 
-    // Read a 32-bit signed integer from WASM memory
-    function readInt32(ptr) {
-        return wasmView.getInt32(ptr, true);
-    }
+    // Read a null-terminated C string from WASM memory
+    // function readString(ptr) {
+    //     let end = ptr;
+    //     while (wasmBuffer[end] !== 0) end++;
+    //     return new TextDecoder().decode(wasmBuffer.subarray(ptr, end));
+    // }
 
-    // Read a 64-bit float from WASM memory
-    function readFloat64(ptr) {
-        return wasmView.getFloat64(ptr, true);
-    }
+    // Read a 32-bit signed integer from WASM memory (little-endian)
+    // function readInt32(ptr) {
+    //     return wasmView.getInt32(ptr, true);
+    // }
 
-    // Write a null-terminated C string to WASM memory
-    function writeString(str, ptr) {
-        for (let i = 0; i < str.length; i++) {
-            wasmBuffer[ptr + i] = str.charCodeAt(i);
-        }
-        wasmBuffer[ptr + str.length] = 0;
-    }
+    // Read a 64-bit float from WASM memory (little-endian)
+    // function readFloat64(ptr) {
+    //     return wasmView.getFloat64(ptr, true);
+    // }
 
-    // Read a Pascal short-string from WASM memory
-    function readPascalString(ptr) {
-        const len = wasmBuffer[ptr];
-        return new TextDecoder().decode(wasmBuffer.subarray(ptr + 1, ptr + 1 + len));
-    }
+    // Write a null-terminated C string to WASM memory (caller must pre-allocate)
+    // function writeString(str, ptr) {
+    //     for (let i = 0; i < str.length; i++) {
+    //         wasmBuffer[ptr + i] = str.charCodeAt(i);
+    //     }
+    //     wasmBuffer[ptr + str.length] = 0;
+    // }
+
+    // Read a Pascal short-string from WASM memory (length-prefixed)
+    // function readPascalString(ptr) {
+    //     const len = wasmBuffer[ptr];
+    //     return new TextDecoder().decode(wasmBuffer.subarray(ptr + 1, ptr + 1 + len));
+    // }
 
     // Refresh typed-array views after WASM memory growth
     function refreshMemoryViews() {
@@ -103,17 +108,26 @@
         wasmView = new DataView(wasmMemory.buffer);
     }
 
-    // Tell Pascal where to draw — fixed offset past all static data
+    // Tell Pascal where to draw — fixed offset past all static data.
+    //
+    // Pixel buffer layout
+    // -------------------
+    // The WASM module's static data (globals, string literals, BSS) ends around
+    // 104 KB.  We reserve the first 256 KB (0x00000–0x3FFFF) as a safe no-touch
+    // zone, then hand Pascal a contiguous RGBA pixel buffer starting at 0x40000.
+    //
+    // At 1200×750 the buffer is 1200 × 750 × 4 = 3,600,000 bytes (~3.4 MB).
+    // WASM initial memory is 4 MB, so the buffer fits with ~140 KB to spare.
+    //
+    // Ideally the Pascal side would export `get_pixels_ptr` so JS doesn't need to
+    // hard-code this offset — consider adding that export in a future revision.
     function setupCanvas() {
         gameWidth = canvas.width;
         gameHeight = canvas.height;
-        // Use a fixed safe offset (256 KB = 0x40000), well past static
-        // data segments which end around 104 KB.  1200*750*4 = 3.6 MB
-        // fits comfortably in the 4 MB initial memory.
-        pixelsPtr = 256 * 1024;
+        pixelsPtr = 256 * 1024; // 0x40000 — see layout note above
         fnCanvasInit(gameWidth, gameHeight, pixelsPtr, 0);
 
-        // Pre-allocate a typed-array view that wraps WASM memory directly (zero-copy)
+        // Wrap WASM memory directly — zero-copy path to putImageData
         cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
         cachedImageData = new ImageData(cachedPixelView, gameWidth, gameHeight);
 
@@ -245,9 +259,21 @@
         }
     }
 
+    // Map modern e.key values to the legacy numeric key codes that the Pascal
+    // side expects (matching the original VK_* constants used in bouncer.pas).
+    const KEY_CODES = {
+        'Enter':      13,
+        ' ':          32,
+        'ArrowLeft':  37,
+        'ArrowUp':    38,
+        'ArrowRight': 39,
+        'ArrowDown':  40,
+    };
+
     // Handle key events
     function handleKeyDown(e) {
-        const key = e.keyCode || e.which;
+        const key = KEY_CODES[e.key];
+        if (key === undefined) return; // Ignore unrecognised keys early
 
         // Enter/Space to start/restart — works even when game loop isn't running yet
         if (key === 13 || key === 32) {
@@ -257,7 +283,7 @@
         }
 
         // Arrow keys for player movement — only during gameplay
-        if (keepRunning && key >= 37 && key <= 40) {
+        if (keepRunning) {
             e.preventDefault();
             fnOnKeyDown(key);
         }
@@ -280,6 +306,50 @@
         }
     }
 
+    // Show an error banner inside the canvas container when WASM fails to load.
+    function showLoadError(err) {
+        const container = document.getElementById('game-canvas')?.parentElement
+            ?? document.body;
+        const banner = document.createElement('div');
+        banner.id = 'wasm-error-banner';
+        banner.style.cssText = [
+            'position:absolute', 'inset:0', 'display:flex', 'flex-direction:column',
+            'align-items:center', 'justify-content:center', 'background:rgba(0,0,0,.85)',
+            'color:#ff6b6b', 'font-family:monospace', 'font-size:1rem',
+            'padding:1rem', 'text-align:center', 'z-index:999',
+        ].join(';');
+        banner.innerHTML = `
+            <strong style="font-size:1.4rem;margin-bottom:.5rem">⚠️ Failed to load game</strong>
+            <span>${err?.message ?? err}</span>
+            <small style="margin-top:.75rem;opacity:.6">Check the browser console for details.</small>`;
+        container.style.position = 'relative';
+        container.appendChild(banner);
+    }
+
+    // Re-initialise canvas pixel buffer when the canvas is resized.
+    function handleResize() {
+        if (!canvas || !wasmMemory) return;
+        // Only act if the canvas element's rendered size has actually changed.
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.round(canvas.clientWidth * dpr);
+        const h = Math.round(canvas.clientHeight * dpr);
+        if (w === gameWidth && h === gameHeight) return;
+        canvas.width = w;
+        canvas.height = h;
+        setupCanvas();
+    }
+
+    // Tear down listeners and cancel the animation loop on page exit.
+    function cleanup() {
+        keepRunning = false;
+        if (animationFrameId !== null) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('resize', handleResize);
+    }
+
     // Initialize everything
     async function init() {
         try {
@@ -290,6 +360,8 @@
             setupCanvas();
 
             window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('resize', handleResize);
+            window.addEventListener('beforeunload', cleanup);
 
             document.getElementById('start-button').addEventListener('click', startGame);
             document.getElementById('restart-button').addEventListener('click', startGame);
@@ -299,6 +371,7 @@
 
         } catch (e) {
             console.error('Failed to initialize WASM:', e);
+            showLoadError(e);
         }
     }
 
