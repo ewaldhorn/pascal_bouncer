@@ -178,6 +178,7 @@
         if (canvas && ctx && cachedImageData && cachedPixelView) {
             // Safety check: If WASM memory grows, the buffer becomes detached.
             if (cachedPixelView.buffer.byteLength === 0) {
+                wasmBuffer = new Uint8Array(wasmMemory.buffer);
                 cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
             }
             cachedImageData.data.set(cachedPixelView);
@@ -237,6 +238,9 @@
             if (fnGetGameStatus && fnOnStart) {
                 const status = fnGetGameStatus();
                 if (status === StartScreen || status === GameOver) {
+                    if (animationFrameId !== null) {
+                        cancelAnimationFrame(animationFrameId);
+                    }
                     fnOnStart();
                     keepRunning = true;
                     lastTime = performance.now();
@@ -300,6 +304,9 @@
                 if (fnGetGameStatus && fnOnStart) {
                     const status = fnGetGameStatus();
                     if (status === StartScreen || status === GameOver) {
+                        if (animationFrameId !== null) {
+                            cancelAnimationFrame(animationFrameId);
+                        }
                         fnOnStart();
                         keepRunning = true;
                         lastTime = performance.now();
@@ -310,11 +317,17 @@
 
             // Restart button
             document.getElementById('restart-button').addEventListener('click', () => {
-                if (fnOnStart) {
-                    fnOnStart();
-                    keepRunning = true;
-                    lastTime = performance.now();
-                    animationFrameId = requestAnimationFrame(tick);
+                if (fnGetGameStatus && fnOnStart) {
+                    const status = fnGetGameStatus();
+                    if (status === StartScreen || status === GameOver) {
+                        if (animationFrameId !== null) {
+                            cancelAnimationFrame(animationFrameId);
+                        }
+                        fnOnStart();
+                        keepRunning = true;
+                        lastTime = performance.now();
+                        animationFrameId = requestAnimationFrame(tick);
+                    }
                 }
             });
 
