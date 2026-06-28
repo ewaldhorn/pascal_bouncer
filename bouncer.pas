@@ -6,22 +6,22 @@ library bouncer;
 
 // ------------------------------------------------------------------------------------------------
 const
-  COLS: Integer = 40;
-  ROWS: Integer = 25;
-  CELL_SIZE: Integer = 30;
-  WIDTH: Integer = 1200;
-  HEIGHT: Integer = 750;
+  COLS = 40;
+  ROWS = 25;
+  CELL_SIZE = 30;
+  WIDTH = 1200;
+  HEIGHT = 750;
 
   // Colours (packed as AABBGGRR — DrawFilledRect writes byte[0]=R, byte[1]=G, byte[2]=B, byte[3]=A)
-  COL_BG: Cardinal = $FF501405;      // Navy blue (5, 20, 80, 255)
-  COL_LAND: Cardinal = $FF3A600C;    // Green (12, 96, 58, 255)
-  COL_TRAIL: Cardinal = $FFFF00FF;   // Magenta (255, 0, 255, 255)
-  COL_PLAYER: Cardinal = $FFFFFFFF;  // White (255, 255, 255, 255)
-  COL_ENEMY: Cardinal = $FF5500FF;   // Red (255, 0, 85, 255)
-  COL_LAND_ENEMY: Cardinal = $FF0078FF; // Orange (255, 120, 0, 255)
-  COL_OVERLAY: Cardinal = $80000000; // Semi-transparent black
+  COL_BG = $FF501405;      // Navy blue (5, 20, 80, 255)
+  COL_LAND = $FF3A600C;    // Green (12, 96, 58, 255)
+  COL_TRAIL = $FFFF00FF;   // Magenta (255, 0, 255, 255)
+  COL_PLAYER = $FFFFFFFF;  // White (255, 255, 255, 255)
+  COL_ENEMY = $FF5500FF;   // Red (255, 0, 85, 255)
+  COL_LAND_ENEMY = $FF0078FF; // Orange (255, 120, 0, 255)
+  COL_OVERLAY = $80000000; // Semi-transparent black
 
-  MAX_ENEMIES: Integer = 10;
+  MAX_ENEMIES = 10;
 
 // ------------------------------------------------------------------------------------------------
 type
@@ -42,14 +42,14 @@ type
 
 // ------------------------------------------------------------------------------------------------
 var
-  grid: array[0..24, 0..39] of TCell;
+  grid: array[0..ROWS - 1, 0..COLS - 1] of TCell;
   player: record
     col, row: Integer;
     dx, dy: Integer;
     moveTimer: Single;
     moveInterval: Single;
   end;
-  enemies: array[0..9] of TEnemyData;
+  enemies: array[0..MAX_ENEMIES - 1] of TEnemyData;
   enemyCount: Integer;
   landEnemy: TEnemyData;
   score, level, lives: Integer;
@@ -202,7 +202,7 @@ function BFSToNearest(gx, gy: Integer; targetCell: TCell): TStackPos;
 var
   head, tail: Integer;
   qx, qy: array[0..999] of Integer;
-  visited: array[0..24, 0..39] of Boolean;
+  visited: array[0..ROWS - 1, 0..COLS - 1] of Boolean;
   c: Integer;
   found: Boolean;
   nx, ny: Integer;
@@ -535,7 +535,7 @@ end;
 function CheckCapture: Integer;
 var
   e, c, r: Integer;
-  safeSet: array[0..24, 0..39] of Boolean;
+  safeSet: array[0..ROWS - 1, 0..COLS - 1] of Boolean;
   cs: Single;
   ex, ey: Integer;
   captured: Integer;
