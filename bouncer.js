@@ -34,6 +34,27 @@
 
     // WASM exports
     let exports = null;
+    let fnInit = null;
+    let fnRender = null;
+    let fnGetWidth = null;
+    let fnGetHeight = null;
+    let fnGetPixels = null;
+    let fnGetScore = null;
+    let fnGetLives = null;
+    let fnGetLevel = null;
+    let fnGetGameStatus = null;
+    let fnGetPercentCaptured = null;
+    let fnOnStart = null;
+    let fnOnKeyDown = null;
+    let fnStep = null;
+    let fnCanvasInit = null;
+
+    // Canvas dimensions & pixel buffer cache
+    let gameWidth = 0;
+    let gameHeight = 0;
+    let pixelsPtr = 0;
+    let cachedImageData = null;
+    let cachedPixelView = null;
 
     function getExport(name) {
         if (!exports) throw new Error(`WASM exports not loaded`);
@@ -86,13 +107,22 @@
 
     // Tell Pascal where to draw — fixed offset past all static data
     function setupCanvas() {
-        const w = canvas.width;
-        const h = canvas.height;
+        gameWidth = canvas.width;
+        gameHeight = canvas.height;
         // Use a fixed safe offset (256 KB = 0x40000), well past static
         // data segments which end around 104 KB.  1200*750*4 = 3.6 MB
         // fits comfortably in the 4 MB initial memory.
-        const pixelsPtr = 256 * 1024;
-        getExport('CanvasInit')(w, h, pixelsPtr, 0);
+        pixelsPtr = 256 * 1024;
+        if (fnCanvasInit) {
+            fnCanvasInit(gameWidth, gameHeight, pixelsPtr, 0);
+        }
+
+        // Pre-allocate the ImageData buffer and typed array view
+        if (ctx) {
+            cachedImageData = ctx.createImageData(gameWidth, gameHeight);
+            cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+        }
+
         return pixelsPtr;
     }
 
@@ -116,39 +146,54 @@
         wasmBuffer = new Uint8Array(wasmMemory.buffer);
         exports = wasmModule.instance.exports;
 
+        // Resolve and cache WASM exports
+        fnInit = getExport('init');
+        fnRender = getExport('render');
+        fnGetWidth = getExport('get_width');
+        fnGetHeight = getExport('get_height');
+        fnGetPixels = getExport('get_pixels');
+        fnGetScore = getExport('get_score');
+        fnGetLives = getExport('get_lives');
+        fnGetLevel = getExport('get_level');
+        fnGetGameStatus = getExport('get_game_status');
+        fnGetPercentCaptured = getExport('get_percent_captured');
+        fnOnStart = getExport('on_start');
+        fnOnKeyDown = getExport('on_key_down');
+        fnStep = getExport('step');
+        fnCanvasInit = getExport('CanvasInit');
+
         // Call Pascal's init
-        getExport('init')();
+        if (fnInit) {
+            fnInit();
+        }
     }
 
     // Render the game frame
     function render() {
-        const renderFn = getExport('render');
-        if (renderFn) {
-            renderFn();
+        if (fnRender) {
+            fnRender();
         }
 
         // Copy the pixel buffer to the canvas
-        if (canvas && ctx) {
-            const width = getExport('get_width')();
-            const height = getExport('get_height')();
-            const pixelsPtr = getExport('get_pixels')();
-
-            // The pixel buffer is a Uint8ClampedArray in WASM memory
-            // Each pixel is 4 bytes (RGBA)
-            const imageData = ctx.createImageData(width, height);
-            const data = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, width * height * 4);
-            imageData.data.set(data);
-            ctx.putImageData(imageData, 0, 0);
+        if (canvas && ctx && cachedImageData && cachedPixelView) {
+            // Safety check: If WASM memory grows, the buffer becomes detached.
+            if (cachedPixelView.buffer.byteLength === 0) {
+                cachedPixelView = new Uint8ClampedArray(wasmMemory.buffer, pixelsPtr, gameWidth * gameHeight * 4);
+            }
+            cachedImageData.data.set(cachedPixelView);
+            ctx.putImageData(cachedImageData, 0, 0);
         }
     }
 
     // Update the scoreboard UI
     function updateUI() {
-        const score = getExport('get_score')();
-        const lives = getExport('get_lives')();
-        const level = getExport('get_level')();
-        const status = getExport('get_game_status')();
-        const percent = getExport('get_percent_captured')();
+        if (!fnGetScore || !fnGetLives || !fnGetLevel || !fnGetGameStatus || !fnGetPercentCaptured) return;
+
+        const score = fnGetScore();
+        const lives = fnGetLives();
+        const level = fnGetLevel();
+        const status = fnGetGameStatus();
+        const percent = fnGetPercentCaptured();
 
         scoreVal.textContent = String(score).padStart(6, '0');
         areaVal.textContent = percent.toFixed(1) + '%';
@@ -189,12 +234,14 @@
         // Enter/Space to start/restart — works even when game loop isn't running yet
         if (key === 13 || key === 32) {
             e.preventDefault();
-            if (getExport('get_game_status')() === StartScreen ||
-                getExport('get_game_status')() === GameOver) {
-                getExport('on_start')();
-                keepRunning = true;
-                lastTime = performance.now();
-                animationFrameId = requestAnimationFrame(tick);
+            if (fnGetGameStatus && fnOnStart) {
+                const status = fnGetGameStatus();
+                if (status === StartScreen || status === GameOver) {
+                    fnOnStart();
+                    keepRunning = true;
+                    lastTime = performance.now();
+                    animationFrameId = requestAnimationFrame(tick);
+                }
             }
             return;
         }
@@ -203,7 +250,9 @@
         if (!keepRunning) return;
         if (key >= 37 && key <= 40) {
             e.preventDefault();
-            getExport('on_key_down')(key);
+            if (fnOnKeyDown) {
+                fnOnKeyDown(key);
+            }
         }
     }
 
@@ -214,9 +263,8 @@
         lastTime = now;
 
         // Call Pascal's step function (expects seconds)
-        const stepFn = getExport('step');
-        if (stepFn) {
-            stepFn(deltaTime);
+        if (fnStep) {
+            fnStep(deltaTime);
         }
 
         // Render the frame
@@ -249,21 +297,25 @@
 
             // Start button
             document.getElementById('start-button').addEventListener('click', () => {
-                if (getExport('get_game_status')() === StartScreen ||
-                    getExport('get_game_status')() === GameOver) {
-                    getExport('on_start')();
-                    keepRunning = true;
-                    lastTime = performance.now();
-                    animationFrameId = requestAnimationFrame(tick);
+                if (fnGetGameStatus && fnOnStart) {
+                    const status = fnGetGameStatus();
+                    if (status === StartScreen || status === GameOver) {
+                        fnOnStart();
+                        keepRunning = true;
+                        lastTime = performance.now();
+                        animationFrameId = requestAnimationFrame(tick);
+                    }
                 }
             });
 
             // Restart button
             document.getElementById('restart-button').addEventListener('click', () => {
-                getExport('on_start')();
-                keepRunning = true;
-                lastTime = performance.now();
-                animationFrameId = requestAnimationFrame(tick);
+                if (fnOnStart) {
+                    fnOnStart();
+                    keepRunning = true;
+                    lastTime = performance.now();
+                    animationFrameId = requestAnimationFrame(tick);
+                }
             });
 
             // Initial render
