@@ -673,30 +673,28 @@ begin
 end;
 
 // ------------------------------------------------------------------------------------------------
-procedure DrawPixel(col, row: Integer; colour: Cardinal);
-var
-  px: PByte;
-  ch: Integer;
+procedure WriteColor(px: PByte; colour: Cardinal);
 begin
-  px := canvasPixels + (row * canvasWidth + col) * 4;
-  for ch := 0 to 3 do
-    px[ch] := Byte(colour shr (ch * 8));
+  px[0] := Byte(colour);
+  px[1] := Byte(colour shr 8);
+  px[2] := Byte(colour shr 16);
+  px[3] := Byte(colour shr 24);
+end;
+
+// ------------------------------------------------------------------------------------------------
+procedure DrawPixel(col, row: Integer; colour: Cardinal);
+begin
+  WriteColor(canvasPixels + (row * canvasWidth + col) * 4, colour);
 end;
 
 // ------------------------------------------------------------------------------------------------
 procedure DrawFilledRect(c1, r1, c2, r2: Integer; colour: Cardinal);
 var
   c, r: Integer;
-  px: PByte;
-  ch: Integer;
 begin
   for r := r1 to r2 do
     for c := c1 to c2 do
-    begin
-      px := canvasPixels + (r * canvasWidth + c) * 4;
-      for ch := 0 to 3 do
-        px[ch] := Byte(colour shr (ch * 8));
-    end;
+      WriteColor(canvasPixels + (r * canvasWidth + c) * 4, colour);
 end;
 
 // ------------------------------------------------------------------------------------------------
@@ -715,7 +713,6 @@ var
   cx, cy, r: Integer;
   i, j: Integer;
   px: PByte;
-  ch: Integer;
 begin
   if not e.active then Exit;
   cx := Trunc(e.pixel_x + e.size / 2.0);
@@ -727,8 +724,7 @@ begin
       if (i * i + j * j) <= (r * r) then
       begin
         px := canvasPixels + ((cy + j) * canvasWidth + (cx + i)) * 4;
-        for ch := 0 to 3 do
-          px[ch] := Byte(colour shr (ch * 8));
+        WriteColor(px, colour);
       end;
     end;
 end;
