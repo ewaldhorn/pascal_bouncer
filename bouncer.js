@@ -292,7 +292,7 @@
     // Game loop
     function tick() {
         const now = performance.now();
-        const deltaTime = (now - lastTime) / 1000.0; // seconds
+        const deltaTime = Math.min((now - lastTime) / 1000.0, 0.1); // seconds, clamped to avoid giant steps after tab-away
         lastTime = now;
 
         fnStep(deltaTime);
@@ -348,6 +348,7 @@
         }
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('resize', handleResize);
+        window.removeEventListener('pagehide', cleanup);
     }
 
     // Initialize everything
@@ -362,6 +363,7 @@
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('resize', handleResize);
             window.addEventListener('beforeunload', cleanup);
+            window.addEventListener('pagehide', cleanup);
 
             document.getElementById('start-button').addEventListener('click', startGame);
             document.getElementById('restart-button').addEventListener('click', startGame);
