@@ -106,6 +106,7 @@ body {
     color: var(--text-primary);
     text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
     font-variant-numeric: tabular-nums;
+    contain: content; /* Prevents text updates from triggering layout recalculations on the rest of the page */
 }
 
 #score-val {
@@ -142,6 +143,7 @@ body {
     justify-content: center;
     align-items: center;
     transition: border-color var(--transition-smooth);
+    will-change: transform; /* Promotes the canvas container to its own hardware-accelerated GPU layer */
 }
 
 .canvas-wrapper:hover {
